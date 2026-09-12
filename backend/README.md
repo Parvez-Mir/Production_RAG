@@ -53,3 +53,29 @@ print(document.metadata)
 
 The parser returns a common `Document` object with `content` and `metadata`, ready
 for the chunking stage.
+
+To inspect chunking through the API while developing, start the server and upload
+a document to the temporary debug endpoint:
+
+```bash
+curl -X POST http://localhost:8000/api/debug/chunk \
+	-F "file=@path/to/document.txt"
+```
+
+The response includes `chunk_count` and each chunk's text and metadata. This route
+is intended for local development and inspection, not production use.
+
+## Chunking
+
+Parsed documents can be split into semantic, token-aware chunks using the configured
+chunk size and overlap:
+
+```python
+from app.services.chunking import ChunkingFactory
+
+chunks = ChunkingFactory.chunk(document)
+```
+
+The default strategy preserves sentence boundaries where possible, carries safe
+sentence overlap between chunks, and adds chunk identifiers, positions, and token
+counts to the document metadata.
