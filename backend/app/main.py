@@ -386,10 +386,54 @@ def chat_documents(request: ChatRequest) -> ChatResponse:
             retrieved_chunks = retrieved_chunks[: request.limit]
 
         context = ContextBuilder().build(retrieved_chunks)
-        template = PromptFactory().get_template(request.prompt_template, request.prompt_version)
-        prompt = template.build(context.context_text, request.query)
-        llm_client = LLMFactory.get_client(settings)
-        llm_response = llm_client.generate(prompt.system_prompt, prompt.user_message)
+
+        if not retrieved_chunks:
+            return ChatResponse(
+                query=request.query,
+                answer=(
+                    "I couldn't find any relevant information in the indexed documents for that question."
+                ),
+                result_count=0,
+                sources=[],
+                provider="fallback",
+                model="n/a",
+                tokens_used=None,
+                latency_ms=None,
+            )
+
+        try:
+            template = PromptFactory().get_template(request.prompt_template, request.prompt_version)
+            prompt = template.build(context.context_text, request.query)
+            llm_client = LLMFactory.get_client(settings)
+            llm_response = llm_client.generate(prompt.system_prompt, prompt.user_message)
+        except Exception:
+            context_summary = context.context_text.strip()
+            fallback_answer = (
+                "The LLM provider is unavailable right now, but the retrieved context suggests: "
+                f"{context_summary[:1500]}"
+            )
+            return ChatResponse(
+                query=request.query,
+                answer=fallback_answer,
+                result_count=len(retrieved_chunks),
+                sources=[
+                    ChatSource(
+                        chunk_id=source.chunk_id,
+                        document=source.document,
+                        section=source.section,
+                        excerpt=source.excerpt,
+                        score=next(
+                            (chunk.similarity_score for chunk in retrieved_chunks if chunk.chunk_id == source.chunk_id),
+                            None,
+                        ),
+                    )
+                    for source in context.chunk_sources
+                ],
+                provider="fallback",
+                model="n/a",
+                tokens_used=None,
+                latency_ms=None,
+            )
 
         return ChatResponse(
             query=request.query,
@@ -413,7 +457,7 @@ def chat_documents(request: ChatRequest) -> ChatResponse:
             tokens_used=llm_response.tokens_used,
             latency_ms=llm_response.latency_ms,
         )
-    except (EmbeddingError, RetrievalError, HybridRetrievalError, VectorDBError, PromptError, LLMError) as exc:
+    except (EmbeddingError, RetrievalError, HybridRetrievalError, VectorDBError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
