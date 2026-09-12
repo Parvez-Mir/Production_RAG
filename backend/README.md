@@ -18,6 +18,23 @@ Run the API:
 uvicorn app.main:app --reload
 ```
 
+Start the local Weaviate vector database from the project root:
+
+```bash
+docker compose up -d
+```
+
+Weaviate is available at `http://localhost:8080` with persistent data stored in
+the `weaviate_data` Docker volume. The vector database uses self-provided vectors
+from the configured embedding provider; it does not download or generate vectors
+itself.
+
+Stop it with:
+
+```bash
+docker compose down
+```
+
 Health check: `GET http://localhost:8000/api/health`
 
 Upload and parse a document, up to 5 MB:
