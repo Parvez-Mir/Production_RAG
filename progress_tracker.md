@@ -1,14 +1,15 @@
 # RAG System Progress Tracker
 
 Last updated: 2026-09-12
-Current phase: Phase 1 - Foundation & Document Ingestion
+Current phase: Phase 2 - Retrieval Pipeline & LLM Integration
 Overall status: In progress
 
 ## Current Position
 
-- The Phase 1 backend foundation is in place and validated.
+- The Phase 1 backend foundation is complete and validated.
 - Parsing, chunking, embedding, metadata persistence, vector storage, and the remaining API routes are implemented.
-- The next follow-up is final documentation polish and any remaining operational cleanups before broader feature work.
+- Phase 2 planning is complete; implementation will cover retrieval, generation, chat orchestration, and resilience.
+- Full integration testing is out of scope for this phase; component-level checks remain part of implementation work.
 
 ## Phase 1 Tasks
 
@@ -44,6 +45,16 @@ Overall status: In progress
 - [ ] **Search relevance:** Queries do not consistently return the most relevant chunks. Investigate chunk size and overlap, document-aware chunk IDs, query/document embedding consistency, and keyword or reranking support.
 - [ ] **Performance measurement:** Add timing for parsing, chunking, embedding, and Weaviate operations so latency improvements can be measured separately.
 
+## Phase 2 Scope
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| Retrieval pipeline | Task 1 complete | LangChain vector retrieval over Weaviate is implemented; BM25, hybrid retrieval, and optional re-ranking remain. |
+| Context and prompts | Planned | Context assembly and versioned prompt templates. |
+| LLM integration | Planned | Claude client with Ollama fallback and resilience handling. |
+| Chat endpoint | Planned | `/api/chat` response with sources and timing metadata. |
+| Full integration testing | Out of scope | No dedicated end-to-end integration test suite in Phase 2. |
+
 ## Update Log
 
 | Date | Update |
@@ -58,3 +69,5 @@ Overall status: In progress
 | 2026-09-12 | Recorded endpoint latency and search relevance issues for later investigation. |
 | 2026-09-12 | Implemented Task 6 JSON metadata tracking, atomic persistence, document stats, and indexing rollback tests. |
 | 2026-09-12 | Added `/api/stats` and document deletion endpoints, plus regression coverage for the API contract and docs refresh. |
+| 2026-09-12 | Defined Phase 2 scope and removed dedicated integration testing from the Phase 2 plan. |
+| 2026-09-12 | Completed Phase 2 Task 1: LangChain vector retrieval over Weaviate with thresholds, metadata filters, normalized scores, and focused tests. |
