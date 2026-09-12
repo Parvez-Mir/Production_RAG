@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 import numpy as np
 
@@ -53,6 +55,23 @@ class FakeVectorDB:
 
     def close(self) -> None:
         pass
+
+
+class FakeRetriever:
+    def __init__(self, vector_db: object, embeddings: object) -> None:
+        del vector_db, embeddings
+
+    def retrieve(self, query: str, top_k: int, threshold: float) -> list[object]:
+        assert query == "What is in the document?"
+        assert top_k == 5
+        assert threshold == 0.3
+        return [
+            SimpleNamespace(
+                text="A matching chunk.",
+                metadata={"source": "notes.txt", "position": 0},
+                similarity_score=0.88,
+            )
+        ]
 
 
 class FakeMetadataManager:
@@ -160,6 +179,7 @@ def test_index_endpoint_rejects_files_over_five_megabytes() -> None:
 def test_search_endpoint_embeds_query_and_returns_matches(monkeypatch) -> None:
     monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
     monkeypatch.setattr("app.main.VectorDBManager", FakeVectorDB)
+    monkeypatch.setattr("app.main.RetrieverManager", FakeRetriever)
 
     response = client.post(
         "/api/search",
@@ -171,6 +191,8 @@ def test_search_endpoint_embeds_query_and_returns_matches(monkeypatch) -> None:
     assert body["query"] == "What is in the document?"
     assert body["result_count"] == 1
     assert body["results"][0]["text"] == "A matching chunk."
+    assert body["results"][0]["similarity_score"] == 0.88
+    assert body["results"][0]["distance"] == 0.12
 
 
 def test_search_endpoint_validates_query() -> None:

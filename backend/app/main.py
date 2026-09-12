@@ -17,6 +17,7 @@ from app.services.parsers import (
     ParserFactory,
     UnsupportedFileTypeError,
 )
+from app.services.retrieval import RetrievalError, RetrieverManager
 from app.services.vector_db import VectorDBError, VectorDBManager
 from app.utils.logger import configure_logging
 
@@ -43,6 +44,7 @@ class SearchResult(BaseModel):
     text: str = Field(description="Text content of the matching document chunk.")
     metadata: dict[str, object] = Field(description="Metadata stored with the chunk.")
     distance: float | None = Field(description="Weaviate vector distance; lower is more similar.")
+    similarity_score: float = Field(description="Normalized relevance score from 0 to 1.")
 
 
 class SearchResponse(BaseModel):
@@ -215,24 +217,37 @@ async def index_file(file: UploadFile = File(...)) -> IndexResponse:
 def search_documents(request: SearchRequest) -> SearchResponse:
     """Return document chunks nearest to the embedded query."""
     settings = get_settings()
+    vector_db: VectorDBManager | None = None
     try:
         embedder = EmbeddingManager(settings)
-        query_vector = embedder.embed_query(request.query)
         vector_db = VectorDBManager(settings)
-        try:
-            results = vector_db.search(query_vector, limit=request.limit)
-        finally:
-            vector_db.close()
+        retriever = RetrieverManager(vector_db=vector_db, embeddings=embedder)
+        retrieved_chunks = retriever.retrieve(
+            request.query,
+            top_k=request.limit,
+            threshold=0.3,
+        )
         return SearchResponse(
             query=request.query,
-            result_count=len(results),
-            results=[SearchResult(**result) for result in results],
+            result_count=len(retrieved_chunks),
+            results=[
+                SearchResult(
+                    text=chunk.text,
+                    metadata=chunk.metadata,
+                    distance=1.0 - chunk.similarity_score,
+                    similarity_score=chunk.similarity_score,
+                )
+                for chunk in retrieved_chunks
+            ],
         )
-    except (EmbeddingError, VectorDBError) as exc:
+    except (EmbeddingError, RetrievalError, VectorDBError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
+    finally:
+        if vector_db is not None:
+            vector_db.close()
 
 
 @app.get("/api/stats", response_model=StatsResponse, tags=["system"], summary="Get document and chunk statistics")

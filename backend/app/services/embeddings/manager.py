@@ -1,5 +1,6 @@
 import logging
 
+from langchain_core.embeddings import Embeddings
 import numpy as np
 
 from app.config import Settings, get_settings
@@ -10,7 +11,7 @@ from app.services.embeddings.factory import EmbeddingFactory
 logger = logging.getLogger(__name__)
 
 
-class EmbeddingManager:
+class EmbeddingManager(Embeddings):
     def __init__(
         self,
         settings: Settings | None = None,
@@ -23,11 +24,14 @@ class EmbeddingManager:
     def dimension(self) -> int:
         return self.provider.dimension
 
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self._embed(texts).tolist()
+
     def embed_chunks(self, chunks: list[Chunk]) -> np.ndarray:
         texts = [chunk.text for chunk in chunks]
         return self._embed(texts)
 
-    def embed_query(self, text: str) -> np.ndarray:
+    def embed_query(self, text: str) -> list[float]:
         if not text.strip():
             raise EmbeddingError("Cannot embed an empty query")
         vector = np.asarray(self.provider.embed_query(text), dtype=np.float32)
@@ -35,7 +39,7 @@ class EmbeddingManager:
             raise EmbeddingError(
                 f"Expected query embedding shape ({self.dimension},), got {vector.shape}"
             )
-        return vector
+        return vector.tolist()
 
     def model_info(self) -> dict[str, str | int]:
         return {
