@@ -43,3 +43,25 @@ def test_ingest_rejects_files_over_five_megabytes() -> None:
 
     assert response.status_code == 413
     assert "5 MB" in response.json()["detail"]
+
+
+def test_debug_chunk_returns_chunks_and_metadata() -> None:
+    response = client.post(
+        "/api/debug/chunk",
+        files={
+            "file": (
+                "notes.txt",
+                b"First sentence. Second sentence. Third sentence.",
+                "text/plain",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "chunked"
+    assert body["filename"] == "notes.txt"
+    assert body["chunk_count"] == len(body["chunks"])
+    assert body["chunks"][0]["text"] == "First sentence. Second sentence. Third sentence."
+    assert body["chunks"][0]["metadata"]["source"] == "notes.txt"
+    assert body["chunks"][0]["metadata"]["token_count"] > 0
