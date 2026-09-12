@@ -50,6 +50,18 @@ class SearchResponse(BaseModel):
     result_count: int
     results: list[SearchResult]
 
+
+class StatsResponse(BaseModel):
+    document_count: int = Field(description="Number of documents currently tracked.")
+    chunk_count: int = Field(description="Number of indexed chunks in the vector database.")
+    total_size_bytes: int = Field(description="Combined size of all tracked documents in bytes.")
+
+
+class DeleteDocumentResponse(BaseModel):
+    status: str = Field(description="Deletion status for the document.")
+    document_id: str = Field(description="Identifier of the deleted document.")
+
+
 app = FastAPI(
     title="RAG Backend",
     description="Document ingestion and retrieval backend.",
@@ -221,3 +233,68 @@ def search_documents(request: SearchRequest) -> SearchResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
+
+
+@app.get("/api/stats", response_model=StatsResponse, tags=["system"], summary="Get document and chunk statistics")
+def get_stats() -> StatsResponse:
+    """Return metadata and vector store counts for tracked documents."""
+    settings = get_settings()
+    metadata_manager = MetadataManager(settings)
+    try:
+        documented_stats = metadata_manager.get_stats()
+        vector_db = VectorDBManager(settings)
+        try:
+            vector_stats = vector_db.get_stats()
+        finally:
+            vector_db.close()
+    except (MetadataError, VectorDBError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+    merged = dict(documented_stats)
+    for key in ("document_count", "chunk_count"):
+        if key in vector_stats:
+            merged[key] = vector_stats[key]
+    return StatsResponse(**merged)
+
+
+@app.delete(
+    "/api/documents/{document_id}",
+    response_model=DeleteDocumentResponse,
+    tags=["system"],
+    summary="Delete a document and its indexed chunks",
+)
+def delete_document(document_id: str) -> DeleteDocumentResponse:
+    """Remove a document from both the metadata store and the vector database."""
+    settings = get_settings()
+    metadata_manager = MetadataManager(settings)
+    try:
+        if not metadata_manager.get_document(document_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document not found: {document_id}",
+            )
+
+        vector_db = VectorDBManager(settings)
+        try:
+            vector_db.delete_document(document_id)
+        finally:
+            vector_db.close()
+
+        deleted = metadata_manager.delete_document(document_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document not found: {document_id}",
+            )
+    except HTTPException:
+        raise
+    except (MetadataError, VectorDBError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+    return DeleteDocumentResponse(status="deleted", document_id=document_id)
