@@ -27,6 +27,19 @@ class Settings(BaseSettings):
     raw_documents_path: str = "app/data/cache"
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    llm_provider: str = "auto"
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-sonnet-4-20250514"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.6-flash"
+    gemini_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1:8b"
+    llm_max_tokens: int = Field(default=1024, gt=0)
+    llm_temperature: float = Field(default=0.7, ge=0, le=1)
+    llm_timeout_seconds: float = Field(default=30, gt=0)
+    llm_retries: int = Field(default=2, ge=0)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
