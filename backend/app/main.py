@@ -20,6 +20,7 @@ from app.services.parsers import (
     ParserFactory,
     UnsupportedFileTypeError,
 )
+from app.services.reranking import RerankingManager
 from app.services.retrieval import RetrievedChunk, RetrievalError, RetrieverManager
 from app.services.vector_db import VectorDBError, VectorDBManager
 from app.utils.logger import configure_logging
@@ -44,6 +45,10 @@ class SearchRequest(BaseModel):
     retrieval_mode: Literal["hybrid", "vector_only"] = Field(
         default="hybrid",
         description="Retrieval strategy used for this search.",
+    )
+    rerank: bool = Field(
+        default=True,
+        description="Whether to re-score the retrieved chunks with a cross-encoder before returning them.",
     )
 
 
@@ -233,7 +238,7 @@ def search_documents(request: SearchRequest) -> SearchResponse:
         if request.retrieval_mode == "vector_only":
             retrieved_chunks = retriever.retrieve(
                 request.query,
-                top_k=request.limit,
+                top_k=max(request.limit, 10),
                 threshold=0.3,
             )
         else:
@@ -253,7 +258,18 @@ def search_documents(request: SearchRequest) -> SearchResponse:
                 if chunk["metadata"].get("chunk_id")
             ]
             hybrid_retriever = HybridRetriever(retriever, BM25SearchManager(keyword_chunks))
-            retrieved_chunks = hybrid_retriever.retrieve(request.query, top_k=request.limit)
+            retrieved_chunks = hybrid_retriever.retrieve(request.query, top_k=max(request.limit, 10))
+
+        if request.rerank:
+            reranker = RerankingManager()
+            retrieved_chunks = reranker.rerank(
+                request.query,
+                retrieved_chunks,
+                top_k=request.limit,
+            )
+        else:
+            retrieved_chunks = retrieved_chunks[: request.limit]
+
         return SearchResponse(
             query=request.query,
             retrieval_mode=request.retrieval_mode,
@@ -268,7 +284,7 @@ def search_documents(request: SearchRequest) -> SearchResponse:
                 for chunk in retrieved_chunks
             ],
         )
-    except (EmbeddingError, RetrievalError, HybridRetrievalError, VectorDBError) as exc:
+    except (EmbeddingError, RetrievalError, HybridRetrievalError, VectorDBError, RerankingManager) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
