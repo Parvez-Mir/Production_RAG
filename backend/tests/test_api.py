@@ -287,6 +287,57 @@ def test_chat_endpoint_builds_context_and_returns_answer(monkeypatch) -> None:
     assert body["sources"][0]["document"] == "notes.txt"
 
 
+def test_chat_endpoint_returns_graceful_message_when_no_chunks_match(monkeypatch) -> None:
+    class EmptyRetriever:
+        def __init__(self, vector_db: object, embeddings: object) -> None:
+            del vector_db, embeddings
+
+        def retrieve(self, query: str, top_k: int, threshold: float | None = None) -> list[RetrievedChunk]:
+            del query, top_k, threshold
+            return []
+
+    monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
+    monkeypatch.setattr("app.main.VectorDBManager", FakeVectorDB)
+    monkeypatch.setattr("app.main.RetrieverManager", EmptyRetriever)
+    monkeypatch.setattr("app.main.RerankingManager", FakeReranker)
+
+    response = client.post(
+        "/api/chat",
+        json={"query": "What is in the document?", "limit": 5, "retrieval_mode": "vector_only"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["result_count"] == 0
+    assert body["sources"] == []
+    assert "relevant information" in body["answer"]
+
+
+def test_chat_endpoint_falls_back_to_context_when_llm_fails(monkeypatch) -> None:
+    class FailingLLMClient:
+        def generate(self, system_prompt: str, user_message: str) -> object:
+            del system_prompt, user_message
+            raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
+    monkeypatch.setattr("app.main.VectorDBManager", FakeVectorDB)
+    monkeypatch.setattr("app.main.RetrieverManager", FakeRetriever)
+    monkeypatch.setattr("app.main.RerankingManager", FakeReranker)
+    monkeypatch.setattr("app.main.LLMFactory", SimpleNamespace(get_client=lambda settings: FailingLLMClient()))
+
+    response = client.post(
+        "/api/chat",
+        json={"query": "What is in the document?", "limit": 5, "retrieval_mode": "vector_only"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["result_count"] == 1
+    assert body["sources"][0]["document"] == "notes.txt"
+    assert "retrieved context" in body["answer"].lower()
+    assert body["provider"] == "fallback"
+
+
 def test_stats_endpoint_returns_system_metrics(monkeypatch) -> None:
     monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
     monkeypatch.setattr("app.main.VectorDBManager", FakeVectorDB)
