@@ -16,7 +16,7 @@ Overall status: In progress
 | Task | Status | Notes |
 | --- | --- | --- |
 | 1. Project setup and configuration | In progress | Minimal runtime structure, configuration, logging, health route, and test created. |
-| 2. Multi-format document parsing | Not started | Support PDF, TXT, MD, CSV, and JSON. |
+| 2. Multi-format document parsing | Complete | Parser factory supports PDF, TXT, MD, CSV, and JSON with validation and tests. |
 | 3. Intelligent chunking | Not started | Semantic chunks with token-aware sizing and overlap. |
 | 4. Embedding generation | Not started | Use `all-MiniLM-L6-v2` with batch processing. |
 | 5. Weaviate vector database | Not started | Use the `DocumentChunk` collection with self-provided vectors. |
@@ -29,6 +29,7 @@ Overall status: In progress
 ## Acceptance Criteria Progress
 
 - [ ] Upload and parse PDF, TXT, MD, CSV, and JSON files.
+- [x] Parse PDF, TXT, MD, CSV, and JSON files through the parser service.
 - [ ] Produce semantic chunks with configured token limits and overlap.
 - [ ] Generate 384-dimensional embeddings with `all-MiniLM-L6-v2`.
 - [ ] Store vectors and metadata in Weaviate.
@@ -44,3 +45,4 @@ Overall status: In progress
 | --- | --- |
 | 2026-09-12 | Created the Phase 1 tracker and backend boilerplate. |
 | 2026-09-12 | Simplified the boilerplate by removing unused package folders, `.gitkeep`, and generated `__pycache__` directories. |
+| 2026-09-12 | Implemented Task 2 parsers, validation errors, dependencies, and 13 parser tests on `feat/document_parser`. |

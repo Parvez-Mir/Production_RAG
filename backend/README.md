@@ -27,3 +27,19 @@ Interactive API docs: `http://localhost:8000/docs`
 ```bash
 pytest
 ```
+
+## Document Parsing
+
+Supported formats are PDF, TXT, Markdown, CSV, and JSON. Files are validated against
+the configured extension allowlist and maximum size before parsing.
+
+```python
+from app.services.parsers import ParserFactory
+
+document = ParserFactory.parse("path/to/document.pdf")
+print(document.content)
+print(document.metadata)
+```
+
+The parser returns a common `Document` object with `content` and `metadata`, ready
+for the chunking stage.
