@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 import numpy as np
 
 from app.main import app
+from app.services.vector_db import VectorDBError
 
 
 client = TestClient(app)
@@ -48,6 +49,34 @@ class FakeVectorDB:
         pass
 
 
+class FakeMetadataManager:
+    records: dict[str, dict[str, object]] = {}
+
+    def __init__(self, settings: object) -> None:
+        del settings
+
+    def add_document(self, **document: object) -> None:
+        self.records[str(document["doc_id"])] = document
+
+    def update_document(self, doc_id: str, **changes: object) -> None:
+        self.records[doc_id].update(changes)
+
+    def delete_document(self, doc_id: str) -> bool:
+        return self.records.pop(doc_id, None) is not None
+
+
+class FailingVectorDB(FakeVectorDB):
+    deleted_document_id: str | None = None
+
+    def add_chunks(self, chunks: list[object], embeddings: np.ndarray) -> int:
+        del chunks, embeddings
+        raise VectorDBError("vector write failed")
+
+    def delete_document(self, doc_id: str) -> int:
+        FailingVectorDB.deleted_document_id = doc_id
+        return 0
+
+
 def test_health_check() -> None:
     response = client.get("/api/health")
 
@@ -58,6 +87,8 @@ def test_health_check() -> None:
 def test_index_endpoint_embeds_and_stores_uploaded_file(monkeypatch) -> None:
     monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
     monkeypatch.setattr("app.main.VectorDBManager", FakeVectorDB)
+    monkeypatch.setattr("app.main.MetadataManager", FakeMetadataManager)
+    FakeMetadataManager.records.clear()
 
     response = client.post(
         "/api/vector/index",
@@ -71,6 +102,24 @@ def test_index_endpoint_embeds_and_stores_uploaded_file(monkeypatch) -> None:
     assert body["chunk_count"] == body["stored_count"]
     assert body["embedding_model"] == "fake-model"
     assert FakeVectorDB.indexed_chunks == body["chunk_count"]
+    assert FakeMetadataManager.records[body["document_id"]]["status"] == "indexed"
+
+
+def test_index_endpoint_rolls_back_metadata_when_vector_storage_fails(monkeypatch) -> None:
+    monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
+    monkeypatch.setattr("app.main.VectorDBManager", FailingVectorDB)
+    monkeypatch.setattr("app.main.MetadataManager", FakeMetadataManager)
+    FakeMetadataManager.records.clear()
+    FailingVectorDB.deleted_document_id = None
+
+    response = client.post(
+        "/api/vector/index",
+        files={"file": ("notes.txt", b"First line\nSecond line", "text/plain")},
+    )
+
+    assert response.status_code == 503
+    assert FakeMetadataManager.records == {}
+    assert FailingVectorDB.deleted_document_id is not None
 
 
 def test_index_endpoint_rejects_unsupported_file_type() -> None:
