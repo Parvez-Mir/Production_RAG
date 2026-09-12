@@ -56,7 +56,10 @@ curl -X POST http://localhost:8000/api/search \
 ```
 
 The query is embedded with the same model used for document chunks. Weaviate
-returns the closest matching chunks, their metadata, and vector distance.
+returns the closest matching chunks through the LangChain Weaviate retriever.
+Results include metadata, normalized similarity scores, and the legacy vector
+distance field. Matches below the default similarity threshold of `0.3` are
+filtered out.
 
 View the current system stats:
 

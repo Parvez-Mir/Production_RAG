@@ -49,7 +49,7 @@ def test_embedding_manager_embeds_chunks_with_injected_provider() -> None:
 def test_embedding_manager_supports_query_embeddings_and_model_info() -> None:
     manager = EmbeddingManager(Settings(), provider=FakeProvider())
 
-    assert manager.embed_query("hello").shape == (3,)
+    assert np.asarray(manager.embed_query("hello")).shape == (3,)
     assert manager.model_info() == {
         "provider": "sentence-transformers",
         "model": "fake-model",
