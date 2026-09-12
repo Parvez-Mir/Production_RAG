@@ -20,6 +20,16 @@ uvicorn app.main:app --reload
 
 Health check: `GET http://localhost:8000/api/health`
 
+Upload and parse a document, up to 5 MB:
+
+```bash
+curl -X POST http://localhost:8000/api/ingest \
+	-F "file=@path/to/document.txt"
+```
+
+The response includes the parsed content and metadata. Supported extensions are
+`.pdf`, `.txt`, `.md`, `.csv`, and `.json`.
+
 Interactive API docs: `http://localhost:8000/docs`
 
 ## Tests

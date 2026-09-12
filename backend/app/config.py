@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     embedding_model_name: str = "all-MiniLM-L6-v2"
     chunk_size_tokens: int = Field(default=512, gt=0)
     chunk_overlap_tokens: int = Field(default=100, ge=0)
-    max_file_size_mb: int = Field(default=100, gt=0)
+    max_file_size_mb: int = Field(default=5, gt=0)
     allowed_file_types: list[str] = ["pdf", "txt", "md", "csv", "json"]
 
     metadata_file_path: str = "app/data/metadata.json"

@@ -28,13 +28,13 @@ Overall status: In progress
 
 ## Acceptance Criteria Progress
 
-- [ ] Upload and parse PDF, TXT, MD, CSV, and JSON files.
+- [x] Upload and parse PDF, TXT, MD, CSV, and JSON files (5 MB limit).
 - [x] Parse PDF, TXT, MD, CSV, and JSON files through the parser service.
 - [ ] Produce semantic chunks with configured token limits and overlap.
 - [ ] Generate 384-dimensional embeddings with `all-MiniLM-L6-v2`.
 - [ ] Store vectors and metadata in Weaviate.
 - [ ] Track documents and statistics in `metadata.json`.
-- [ ] Expose `/api/ingest`, `/api/stats`, and `/api/health`.
+- [ ] Expose `/api/stats` and complete the remaining API endpoints.
 - [ ] Support document deletion and rollback after failed ingestion.
 - [ ] Pass at least 5 unit tests plus integration coverage.
 - [ ] Provide setup and API documentation.
@@ -46,3 +46,4 @@ Overall status: In progress
 | 2026-09-12 | Created the Phase 1 tracker and backend boilerplate. |
 | 2026-09-12 | Simplified the boilerplate by removing unused package folders, `.gitkeep`, and generated `__pycache__` directories. |
 | 2026-09-12 | Implemented Task 2 parsers, validation errors, dependencies, and 13 parser tests on `feat/document_parser`. |
+| 2026-09-12 | Added `/api/ingest` with 5 MB streaming upload validation and API tests. |
