@@ -10,9 +10,11 @@ from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.services.chunking import ChunkingFactory
+from app.services.context import ContextBuilder
 from app.services.embeddings import EmbeddingError, EmbeddingManager
 from app.services.bm25 import BM25SearchManager
 from app.services.hybrid_retrieval import HybridRetrievalError, HybridRetriever
+from app.services.llm import LLMError, LLMFactory
 from app.services.metadata import MetadataError, MetadataManager
 from app.services.parsers import (
     DocumentParseError,
@@ -20,6 +22,7 @@ from app.services.parsers import (
     ParserFactory,
     UnsupportedFileTypeError,
 )
+from app.services.prompt import PromptError, PromptFactory
 from app.services.reranking import RerankingManager
 from app.services.retrieval import RetrievedChunk, RetrievalError, RetrieverManager
 from app.services.vector_db import VectorDBError, VectorDBManager
@@ -64,6 +67,40 @@ class SearchResponse(BaseModel):
     retrieval_mode: str
     result_count: int
     results: list[SearchResult]
+
+
+class ChatRequest(BaseModel):
+    query: str = Field(min_length=1, description="Natural-language question to answer from the indexed documents.")
+    limit: int = Field(default=5, ge=1, le=20, description="Maximum number of chunks to use as context.")
+    retrieval_mode: Literal["hybrid", "vector_only"] = Field(
+        default="hybrid",
+        description="Retrieval strategy used for this chat question.",
+    )
+    rerank: bool = Field(
+        default=True,
+        description="Whether to re-score the retrieved chunks before generating the answer.",
+    )
+    prompt_template: str = Field(default="default", description="Named prompt template to use.")
+    prompt_version: str | None = Field(default=None, description="Optional template version override.")
+
+
+class ChatSource(BaseModel):
+    chunk_id: str = Field(description="Identifier of the chunk used as source evidence.")
+    document: str = Field(description="Document name that supplied the chunk.")
+    section: str | None = Field(default=None, description="Optional section label when available.")
+    excerpt: str = Field(description="Text excerpt used to answer the query.")
+    score: float | None = Field(default=None, description="Retrieval score associated with the source chunk.")
+
+
+class ChatResponse(BaseModel):
+    query: str = Field(description="Original user query.")
+    answer: str = Field(description="LLM-generated answer grounded in the retrieved context.")
+    result_count: int = Field(description="Number of chunks used as answer context.")
+    sources: list[ChatSource] = Field(description="Source chunks used to build the response.")
+    provider: str = Field(description="LLM provider that generated the answer.")
+    model: str = Field(description="Model name used for the answer generation.")
+    tokens_used: int | None = Field(default=None, description="Total token usage if reported by the provider.")
+    latency_ms: float | None = Field(default=None, description="LLM generation latency in milliseconds.")
 
 
 class StatsResponse(BaseModel):
@@ -285,6 +322,98 @@ def search_documents(request: SearchRequest) -> SearchResponse:
             ],
         )
     except (EmbeddingError, RetrievalError, HybridRetrievalError, VectorDBError, RerankingManager) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    finally:
+        if vector_db is not None:
+            vector_db.close()
+
+
+@app.post(
+    "/api/chat",
+    response_model=ChatResponse,
+    tags=["chat"],
+    summary="Answer a query using the indexed documents",
+    description=(
+        "Retrieve relevant chunks, assemble the retrieval context, build a prompt, "
+        "and generate an answer with the configured LLM provider."
+    ),
+)
+def chat_documents(request: ChatRequest) -> ChatResponse:
+    """Answer a question using indexed document chunks and the active LLM provider."""
+    settings = get_settings()
+    vector_db: VectorDBManager | None = None
+    try:
+        embedder = EmbeddingManager(settings)
+        vector_db = VectorDBManager(settings)
+        retriever = RetrieverManager(vector_db=vector_db, embeddings=embedder)
+
+        if request.retrieval_mode == "vector_only":
+            retrieved_chunks = retriever.retrieve(
+                request.query,
+                top_k=max(request.limit, 10),
+                threshold=0.3,
+            )
+        else:
+            keyword_chunks = [
+                RetrievedChunk(
+                    chunk_id=str(chunk["metadata"].get("chunk_id", "")),
+                    text=str(chunk["text"]),
+                    similarity_score=0.0,
+                    metadata=dict(chunk["metadata"]),
+                    source_document=str(
+                        chunk["metadata"].get(
+                            "source", chunk["metadata"].get("doc_id", "unknown")
+                        )
+                    ),
+                )
+                for chunk in vector_db.get_chunks()
+                if chunk["metadata"].get("chunk_id")
+            ]
+            hybrid_retriever = HybridRetriever(retriever, BM25SearchManager(keyword_chunks))
+            retrieved_chunks = hybrid_retriever.retrieve(request.query, top_k=max(request.limit, 10))
+
+        if request.rerank:
+            reranker = RerankingManager()
+            retrieved_chunks = reranker.rerank(
+                request.query,
+                retrieved_chunks,
+                top_k=request.limit,
+            )
+        else:
+            retrieved_chunks = retrieved_chunks[: request.limit]
+
+        context = ContextBuilder().build(retrieved_chunks)
+        template = PromptFactory().get_template(request.prompt_template, request.prompt_version)
+        prompt = template.build(context.context_text, request.query)
+        llm_client = LLMFactory.get_client(settings)
+        llm_response = llm_client.generate(prompt.system_prompt, prompt.user_message)
+
+        return ChatResponse(
+            query=request.query,
+            answer=llm_response.text,
+            result_count=len(retrieved_chunks),
+            sources=[
+                ChatSource(
+                    chunk_id=source.chunk_id,
+                    document=source.document,
+                    section=source.section,
+                    excerpt=source.excerpt,
+                    score=next(
+                        (chunk.similarity_score for chunk in retrieved_chunks if chunk.chunk_id == source.chunk_id),
+                        None,
+                    ),
+                )
+                for source in context.chunk_sources
+            ],
+            provider=llm_response.provider,
+            model=llm_response.model,
+            tokens_used=llm_response.tokens_used,
+            latency_ms=llm_response.latency_ms,
+        )
+    except (EmbeddingError, RetrievalError, HybridRetrievalError, VectorDBError, PromptError, LLMError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),

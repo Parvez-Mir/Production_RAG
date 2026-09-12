@@ -253,6 +253,40 @@ def test_search_endpoint_validates_query() -> None:
     assert response.status_code == 422
 
 
+def test_chat_endpoint_builds_context_and_returns_answer(monkeypatch) -> None:
+    class FakeLLMClient:
+        def generate(self, system_prompt: str, user_message: str) -> object:
+            assert "provided documents" in system_prompt
+            assert "What is in the document?" in user_message
+            return SimpleNamespace(
+                text="The document says this.",
+                provider="ollama",
+                model="local-model",
+                tokens_used=12,
+                latency_ms=34.5,
+                used_fallback=False,
+            )
+
+    monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
+    monkeypatch.setattr("app.main.VectorDBManager", FakeVectorDB)
+    monkeypatch.setattr("app.main.RetrieverManager", FakeRetriever)
+    monkeypatch.setattr("app.main.RerankingManager", FakeReranker)
+    monkeypatch.setattr("app.main.LLMFactory", SimpleNamespace(get_client=lambda settings: FakeLLMClient()))
+
+    response = client.post(
+        "/api/chat",
+        json={"query": "What is in the document?", "limit": 5, "retrieval_mode": "vector_only"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "The document says this."
+    assert body["provider"] == "ollama"
+    assert body["model"] == "local-model"
+    assert body["result_count"] == 1
+    assert body["sources"][0]["document"] == "notes.txt"
+
+
 def test_stats_endpoint_returns_system_metrics(monkeypatch) -> None:
     monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
     monkeypatch.setattr("app.main.VectorDBManager", FakeVectorDB)
