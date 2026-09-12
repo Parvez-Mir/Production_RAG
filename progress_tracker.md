@@ -20,7 +20,7 @@ Overall status: In progress
 | 3. Intelligent chunking | Complete | Semantic token-aware chunks with sentence-safe overlap and metadata. |
 | 4. Embedding generation | Complete | Provider-based embedding service with configurable model, batching, device, normalization, and injected test providers. |
 | 5. Weaviate vector database | Complete | Local Docker Weaviate manager with self-provided vectors, upsert, search, deletion, stats, and mocked tests. |
-| 6. Metadata tracking | Not started | Persist document metadata in JSON. |
+| 6. Metadata tracking | Complete | Atomic JSON metadata store with CRUD, stats, persistence, and ingestion rollback. |
 | 7. Ingestion orchestration pipeline | Not started | Coordinate parse, chunk, embed, store, metadata, and rollback. |
 | 8. FastAPI endpoints | Not started | Add ingest, stats, health, and document deletion routes. |
 | 9. Testing strategy | Not started | Add unit and integration coverage for Phase 1. |
@@ -33,7 +33,7 @@ Overall status: In progress
 - [x] Produce semantic chunks with configured token limits and overlap.
 - [x] Generate model-dimension embeddings with configurable `all-MiniLM-L6-v2` provider.
 - [x] Store vectors and metadata in local Weaviate.
-- [ ] Track documents and statistics in `metadata.json`.
+- [x] Track documents and statistics in `metadata.json`.
 - [ ] Expose `/api/stats` and complete the remaining API endpoints.
 - [ ] Support document deletion and rollback after failed ingestion.
 - [ ] Pass at least 5 unit tests plus integration coverage.
@@ -57,3 +57,4 @@ Overall status: In progress
 | 2026-09-12 | Implemented Task 4 modular embedding providers, sentence-transformers integration, configuration, and tests. |
 | 2026-09-12 | Implemented Task 5 Weaviate vector storage manager, local Docker configuration, and mocked tests. |
 | 2026-09-12 | Recorded endpoint latency and search relevance issues for later investigation. |
+| 2026-09-12 | Implemented Task 6 JSON metadata tracking, atomic persistence, document stats, and indexing rollback tests. |

@@ -58,6 +58,11 @@ curl -X POST http://localhost:8000/api/search \
 The query is embedded with the same model used for document chunks. Weaviate
 returns the closest matching chunks, their metadata, and vector distance.
 
+Document metadata is persisted at the configured `METADATA_FILE_PATH` (default:
+`app/data/metadata.json`). Each record includes the document ID, filename, file
+type, upload time, file size, chunk count, and indexing status. Metadata writes
+are atomic, and failed indexing removes both metadata and any stored vectors.
+
 Interactive API docs: `http://localhost:8000/docs`
 
 ## Tests

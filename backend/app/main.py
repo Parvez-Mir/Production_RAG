@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.config import get_settings
 from app.services.chunking import ChunkingFactory
 from app.services.embeddings import EmbeddingError, EmbeddingManager
+from app.services.metadata import MetadataError, MetadataManager
 from app.services.parsers import (
     DocumentParseError,
     FileValidationError,
@@ -98,8 +99,24 @@ async def index_file(file: UploadFile = File(...)) -> IndexResponse:
 
     max_bytes = MAX_UPLOAD_SIZE_MB * 1024 * 1024
     temporary_path: str | None = None
+    vector_db: VectorDBManager | None = None
+    metadata_manager = MetadataManager(settings)
+    metadata_created = False
     total_bytes = 0
     document_id = str(uuid.uuid4())
+
+    def rollback() -> None:
+        if vector_db is not None:
+            try:
+                vector_db.delete_document(document_id)
+            except VectorDBError:
+                pass
+        if metadata_created:
+            try:
+                metadata_manager.delete_document(document_id)
+            except MetadataError:
+                pass
+
     try:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temporary_file:
             temporary_path = temporary_file.name
@@ -114,14 +131,23 @@ async def index_file(file: UploadFile = File(...)) -> IndexResponse:
 
         document = ParserFactory.parse(temporary_path, settings=settings)
         document.metadata.update({"source": file.filename, "doc_id": document_id})
+        metadata_manager.add_document(
+            filename=file.filename,
+            file_type=suffix.lstrip("."),
+            file_size_bytes=total_bytes,
+            doc_id=document_id,
+        )
+        metadata_created = True
         chunks = ChunkingFactory.chunk(document, settings=settings)
         embedder = EmbeddingManager(settings)
         embeddings = embedder.embed_chunks(chunks)
         vector_db = VectorDBManager(settings)
-        try:
-            stored_count = vector_db.add_chunks(chunks, embeddings)
-        finally:
-            vector_db.close()
+        stored_count = vector_db.add_chunks(chunks, embeddings)
+        metadata_manager.update_document(
+            document_id,
+            chunk_count=len(chunks),
+            status="indexed",
+        )
         return IndexResponse(
             status="indexed",
             document_id=document_id,
@@ -130,27 +156,36 @@ async def index_file(file: UploadFile = File(...)) -> IndexResponse:
             stored_count=stored_count,
             embedding_model=embedder.provider.model_name,
         )
+    except HTTPException:
+        rollback()
+        raise
     except UnsupportedFileTypeError as exc:
+        rollback()
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=str(exc),
         ) from exc
     except FileValidationError as exc:
+        rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
     except DocumentParseError as exc:
+        rollback()
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
-    except (EmbeddingError, VectorDBError) as exc:
+    except (EmbeddingError, MetadataError, VectorDBError) as exc:
+        rollback()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
     finally:
+        if vector_db is not None:
+            vector_db.close()
         await file.close()
         if temporary_path:
             os.unlink(temporary_path)
