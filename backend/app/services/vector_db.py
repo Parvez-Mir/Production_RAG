@@ -94,6 +94,35 @@ class VectorDBManager:
             for result in response.objects
         ]
 
+    def get_chunks(self) -> list[dict[str, Any]]:
+        chunk_count = int(self.collection.aggregate.over_all(total_count=True).total_count or 0)
+        if not chunk_count:
+            return []
+
+        response = self.collection.query.fetch_objects(
+            limit=chunk_count,
+            return_properties=[
+                "text",
+                "doc_id",
+                "source",
+                "file_type",
+                "section",
+                "position",
+                "chunk_id",
+            ],
+        )
+        return [
+            {
+                "text": result.properties.get("text", ""),
+                "metadata": {
+                    key: value
+                    for key, value in result.properties.items()
+                    if key != "text"
+                },
+            }
+            for result in response.objects
+        ]
+
     def get_stats(self) -> dict[str, int]:
         aggregate = self.collection.aggregate.over_all(total_count=True)
         chunk_count = int(aggregate.total_count or 0)

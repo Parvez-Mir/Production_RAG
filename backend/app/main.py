@@ -2,6 +2,7 @@ import os
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +11,8 @@ from pydantic import BaseModel, Field
 from app.config import get_settings
 from app.services.chunking import ChunkingFactory
 from app.services.embeddings import EmbeddingError, EmbeddingManager
+from app.services.bm25 import BM25SearchManager
+from app.services.hybrid_retrieval import HybridRetrievalError, HybridRetriever
 from app.services.metadata import MetadataError, MetadataManager
 from app.services.parsers import (
     DocumentParseError,
@@ -17,7 +20,7 @@ from app.services.parsers import (
     ParserFactory,
     UnsupportedFileTypeError,
 )
-from app.services.retrieval import RetrievalError, RetrieverManager
+from app.services.retrieval import RetrievedChunk, RetrievalError, RetrieverManager
 from app.services.vector_db import VectorDBError, VectorDBManager
 from app.utils.logger import configure_logging
 
@@ -38,6 +41,10 @@ class IndexResponse(BaseModel):
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, description="Natural-language question or search phrase.")
     limit: int = Field(default=5, ge=1, le=50, description="Maximum number of matches to return.")
+    retrieval_mode: Literal["hybrid", "vector_only"] = Field(
+        default="hybrid",
+        description="Retrieval strategy used for this search.",
+    )
 
 
 class SearchResult(BaseModel):
@@ -49,6 +56,7 @@ class SearchResult(BaseModel):
 
 class SearchResponse(BaseModel):
     query: str
+    retrieval_mode: str
     result_count: int
     results: list[SearchResult]
 
@@ -222,13 +230,33 @@ def search_documents(request: SearchRequest) -> SearchResponse:
         embedder = EmbeddingManager(settings)
         vector_db = VectorDBManager(settings)
         retriever = RetrieverManager(vector_db=vector_db, embeddings=embedder)
-        retrieved_chunks = retriever.retrieve(
-            request.query,
-            top_k=request.limit,
-            threshold=0.3,
-        )
+        if request.retrieval_mode == "vector_only":
+            retrieved_chunks = retriever.retrieve(
+                request.query,
+                top_k=request.limit,
+                threshold=0.3,
+            )
+        else:
+            keyword_chunks = [
+                RetrievedChunk(
+                    chunk_id=str(chunk["metadata"].get("chunk_id", "")),
+                    text=str(chunk["text"]),
+                    similarity_score=0.0,
+                    metadata=dict(chunk["metadata"]),
+                    source_document=str(
+                        chunk["metadata"].get(
+                            "source", chunk["metadata"].get("doc_id", "unknown")
+                        )
+                    ),
+                )
+                for chunk in vector_db.get_chunks()
+                if chunk["metadata"].get("chunk_id")
+            ]
+            hybrid_retriever = HybridRetriever(retriever, BM25SearchManager(keyword_chunks))
+            retrieved_chunks = hybrid_retriever.retrieve(request.query, top_k=request.limit)
         return SearchResponse(
             query=request.query,
+            retrieval_mode=request.retrieval_mode,
             result_count=len(retrieved_chunks),
             results=[
                 SearchResult(
@@ -240,7 +268,7 @@ def search_documents(request: SearchRequest) -> SearchResponse:
                 for chunk in retrieved_chunks
             ],
         )
-    except (EmbeddingError, RetrievalError, VectorDBError) as exc:
+    except (EmbeddingError, RetrievalError, HybridRetrievalError, VectorDBError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),

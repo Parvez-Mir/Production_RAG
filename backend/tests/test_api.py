@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 import numpy as np
 
 from app.main import app
+from app.services.retrieval import RetrievedChunk
 from app.services.vector_db import VectorDBError
 
 
@@ -47,6 +48,19 @@ class FakeVectorDB:
             }
         ][:limit]
 
+    def get_chunks(self) -> list[dict[str, object]]:
+        return [
+            {
+                "text": "A matching chunk.",
+                "metadata": {
+                    "chunk_id": "chunk-1",
+                    "doc_id": "doc-1",
+                    "source": "notes.txt",
+                    "position": 0,
+                },
+            }
+        ]
+
     def get_stats(self) -> dict[str, int]:
         return {"document_count": 1, "chunk_count": 3}
 
@@ -61,15 +75,20 @@ class FakeRetriever:
     def __init__(self, vector_db: object, embeddings: object) -> None:
         del vector_db, embeddings
 
-    def retrieve(self, query: str, top_k: int, threshold: float) -> list[object]:
+    def retrieve(
+        self, query: str, top_k: int, threshold: float | None = None
+    ) -> list[object]:
         assert query == "What is in the document?"
-        assert top_k == 5
-        assert threshold == 0.3
+        assert top_k in (5, 10)
+        if threshold is not None:
+            assert threshold == 0.3
         return [
-            SimpleNamespace(
+            RetrievedChunk(
+                chunk_id="chunk-1",
                 text="A matching chunk.",
                 metadata={"source": "notes.txt", "position": 0},
                 similarity_score=0.88,
+                source_document="notes.txt",
             )
         ]
 
@@ -183,16 +202,37 @@ def test_search_endpoint_embeds_query_and_returns_matches(monkeypatch) -> None:
 
     response = client.post(
         "/api/search",
-        json={"query": "What is in the document?", "limit": 5},
+        json={
+            "query": "What is in the document?",
+            "limit": 5,
+            "retrieval_mode": "vector_only",
+        },
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["query"] == "What is in the document?"
+    assert body["retrieval_mode"] == "vector_only"
     assert body["result_count"] == 1
     assert body["results"][0]["text"] == "A matching chunk."
     assert body["results"][0]["similarity_score"] == 0.88
     assert body["results"][0]["distance"] == 0.12
+
+
+def test_search_endpoint_defaults_to_hybrid_mode(monkeypatch) -> None:
+    monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
+    monkeypatch.setattr("app.main.VectorDBManager", FakeVectorDB)
+    monkeypatch.setattr("app.main.RetrieverManager", FakeRetriever)
+
+    response = client.post(
+        "/api/search",
+        json={"query": "What is in the document?", "limit": 5},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["retrieval_mode"] == "hybrid"
+    assert body["result_count"] == 1
 
 
 def test_search_endpoint_validates_query() -> None:
