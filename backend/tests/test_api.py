@@ -45,6 +45,12 @@ class FakeVectorDB:
             }
         ][:limit]
 
+    def get_stats(self) -> dict[str, int]:
+        return {"document_count": 1, "chunk_count": 3}
+
+    def delete_document(self, doc_id: str) -> int:
+        return 1 if doc_id else 0
+
     def close(self) -> None:
         pass
 
@@ -60,6 +66,16 @@ class FakeMetadataManager:
 
     def update_document(self, doc_id: str, **changes: object) -> None:
         self.records[doc_id].update(changes)
+
+    def get_document(self, doc_id: str) -> dict[str, object] | None:
+        return self.records.get(doc_id)
+
+    def get_stats(self) -> dict[str, int]:
+        return {
+            "document_count": len(self.records),
+            "chunk_count": sum(int(record.get("chunk_count", 0)) for record in self.records.values()),
+            "total_size_bytes": sum(int(record.get("file_size_bytes", 0)) for record in self.records.values()),
+        }
 
     def delete_document(self, doc_id: str) -> bool:
         return self.records.pop(doc_id, None) is not None
@@ -161,3 +177,47 @@ def test_search_endpoint_validates_query() -> None:
     response = client.post("/api/search", json={"query": "", "limit": 5})
 
     assert response.status_code == 422
+
+
+def test_stats_endpoint_returns_system_metrics(monkeypatch) -> None:
+    monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
+    monkeypatch.setattr("app.main.VectorDBManager", FakeVectorDB)
+    monkeypatch.setattr("app.main.MetadataManager", FakeMetadataManager)
+    FakeMetadataManager.records.clear()
+    FakeMetadataManager.records["doc-1"] = {
+        "doc_id": "doc-1",
+        "filename": "notes.txt",
+        "file_type": "txt",
+        "file_size_bytes": 120,
+        "chunk_count": 2,
+        "status": "indexed",
+    }
+
+    response = client.get("/api/stats")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["document_count"] == 1
+    assert body["chunk_count"] == 3
+    assert body["total_size_bytes"] == 120
+
+
+def test_delete_document_endpoint_removes_document_and_chunks(monkeypatch) -> None:
+    monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
+    monkeypatch.setattr("app.main.VectorDBManager", FakeVectorDB)
+    monkeypatch.setattr("app.main.MetadataManager", FakeMetadataManager)
+    FakeMetadataManager.records.clear()
+    FakeMetadataManager.records["doc-1"] = {
+        "doc_id": "doc-1",
+        "filename": "notes.txt",
+        "file_type": "txt",
+        "file_size_bytes": 120,
+        "chunk_count": 2,
+        "status": "indexed",
+    }
+
+    response = client.delete("/api/documents/doc-1")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "deleted"
+    assert FakeMetadataManager.records == {}
