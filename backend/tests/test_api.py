@@ -195,10 +195,21 @@ def test_index_endpoint_rejects_files_over_five_megabytes() -> None:
     assert "5 MB" in response.json()["detail"]
 
 
+class FakeReranker:
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        del args, kwargs
+
+    def rerank(self, query: str, chunks: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
+        assert query == "What is in the document?"
+        assert top_k == 5
+        return chunks[:top_k]
+
+
 def test_search_endpoint_embeds_query_and_returns_matches(monkeypatch) -> None:
     monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
     monkeypatch.setattr("app.main.VectorDBManager", FakeVectorDB)
     monkeypatch.setattr("app.main.RetrieverManager", FakeRetriever)
+    monkeypatch.setattr("app.main.RerankingManager", FakeReranker)
 
     response = client.post(
         "/api/search",
@@ -223,6 +234,7 @@ def test_search_endpoint_defaults_to_hybrid_mode(monkeypatch) -> None:
     monkeypatch.setattr("app.main.EmbeddingManager", FakeEmbedder)
     monkeypatch.setattr("app.main.VectorDBManager", FakeVectorDB)
     monkeypatch.setattr("app.main.RetrieverManager", FakeRetriever)
+    monkeypatch.setattr("app.main.RerankingManager", FakeReranker)
 
     response = client.post(
         "/api/search",
