@@ -37,15 +37,26 @@ docker compose down
 
 Health check: `GET http://localhost:8000/api/health`
 
-Upload and parse a document, up to 5 MB:
+Index a document, up to 5 MB:
 
 ```bash
-curl -X POST http://localhost:8000/api/ingest \
+curl -X POST http://localhost:8000/api/vector/index \
 	-F "file=@path/to/document.txt"
 ```
 
-The response includes the parsed content and metadata. Supported extensions are
-`.pdf`, `.txt`, `.md`, `.csv`, and `.json`.
+The endpoint parses the file, creates chunks and embeddings, then stores them in
+Weaviate. Supported extensions are `.pdf`, `.txt`, `.md`, `.csv`, and `.json`.
+
+Search the indexed chunks:
+
+```bash
+curl -X POST http://localhost:8000/api/search \
+	-H "Content-Type: application/json" \
+	-d '{"query":"What is this document about?","limit":5}'
+```
+
+The query is embedded with the same model used for document chunks. Weaviate
+returns the closest matching chunks, their metadata, and vector distance.
 
 Interactive API docs: `http://localhost:8000/docs`
 
@@ -58,7 +69,7 @@ pytest
 ## Document Parsing
 
 Supported formats are PDF, TXT, Markdown, CSV, and JSON. Files are validated against
-the configured extension allowlist and maximum size before parsing.
+the configured extension allowlist and maximum size before indexing.
 
 ```python
 from app.services.parsers import ParserFactory
@@ -69,18 +80,7 @@ print(document.metadata)
 ```
 
 The parser returns a common `Document` object with `content` and `metadata`, ready
-for the chunking stage.
-
-To inspect chunking through the API while developing, start the server and upload
-a document to the temporary debug endpoint:
-
-```bash
-curl -X POST http://localhost:8000/api/debug/chunk \
-	-F "file=@path/to/document.txt"
-```
-
-The response includes `chunk_count` and each chunk's text and metadata. This route
-is intended for local development and inspection, not production use.
+for chunking and embedding.
 
 ## Chunking
 
