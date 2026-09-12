@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     weaviate_collection: str = "DocumentChunk"
 
     embedding_model_name: str = "all-MiniLM-L6-v2"
+    embedding_provider: str = "sentence-transformers"
+    embedding_batch_size: int = Field(default=32, gt=0)
+    embedding_device: str = "cpu"
+    embedding_normalize: bool = True
     chunk_size_tokens: int = Field(default=512, gt=0)
     chunk_overlap_tokens: int = Field(default=100, ge=0)
     max_file_size_mb: int = Field(default=5, gt=0)
